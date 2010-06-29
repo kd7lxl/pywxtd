@@ -1,0 +1,204 @@
+#!/usr/bin/env python
+"""
+Listens to a WXT520 weather station on a network serial port,
+parses the ASCII weather data format, builds and submits an
+APRS weather packet to the APRS-IS/CWOP.
+
+BSD License and stuff
+Copyright 2010 Tom Hayward <tom@tomh.us> 
+"""
+
+
+import sys, os, time
+from apscheduler.scheduler import Scheduler
+from socket import *
+
+# configure these paths:
+LOGFILE = '/var/log/pywxtd.log'
+PIDFILE = '/var/run/pywxtd.pid'
+#CONFFILE = '/etc/pywxtd.conf'
+
+#wx_host = 'dana-roof-serial.ce.wsu.edu'
+wx_host = 'localhost'
+wx_port = 4001
+
+aprs_host = 'northwest.aprs2.net'
+aprs_port = 14580
+aprs_user = 'KD7LXL-WX'
+aprs_pass = '22438'
+
+callsign = 'W7YH-3'
+
+rain_at_hour = None
+
+class Log:
+    """file like for writes with auto flush after each write
+    to ensure that everything is logged, even during an
+    unexpected exit."""
+    def __init__(self, f):
+        self.f = f
+    def write(self, s):
+        self.f.write(s)
+        self.f.flush()
+
+def toMph(speed):
+    """Convert to miles/hour"""
+    # m/s
+    if speed[-1] == 'M':
+        return float(speed[:-1]) * 2.23693629
+    # km/h
+    elif speed[-1] == 'K':
+        return float(speed[:-1]) * 0.621371192
+    # mph
+    elif speed[-1] == 'S':
+        return float(speed[:-1]) * 1
+    # knots
+    elif speed[-1] == 'N':
+        return float(speed[:-1]) * 1.15077945
+    else:
+        return 0
+
+def toFahrenheit(temp):
+    """Convert to degrees Fahrenheit"""
+    if temp[-1] == 'C':
+        return float(temp[:-1]) * (9.0/5.0) + 32
+    elif temp[-1] == 'F':
+        return float(temp[:-1])
+
+def toHin(rain):
+    """Convert to hundreths of an inch"""
+    # from mm (M)
+    if rain[-1] == 'M':
+        return float(rain[:-1]) * 3.93700787
+
+def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=None, rain_last_hour=None, humidity=None, pressure=None):
+    """Assembles the payload of the APRS weather packet"""
+    wind_dir = '%03d'%wind_dir if wind_dir is not None else '.'*3
+    wind_speed = '%03.0f'%wind_speed if wind_speed is not None else '.'*3
+    wind_gust = '%03.0f'%wind_gust if wind_gust is not None else '.'*3
+    temperature = '%03.0f'%temperature if temperature is not None else '.'*3
+    rain_last_hour = '%03.0f'%rain_last_hour if rain_last_hour is not None else '.'*3
+    humidity = '%02.0f'%humidity if humidity is not None else '.'*2
+    pressure = '%05.0f'%pressure if pressure is not None else '.'*5
+    return '!4643.80N/11710.14W_%s/%sg%st%sr%sh%sb%sWXT' % (wind_dir, wind_speed, wind_gust, temperature, rain_last_hour, humidity, pressure)
+
+def send_aprs(host, port, user, passcode, callsign, wx):
+    #start the aprs server socket
+    s = socket(AF_INET, SOCK_STREAM)
+    s.connect((host, port))
+    #aprs login
+    s.send('user %s pass %s vers KD7LXL-Python 0.1\n' % (user, passcode) )
+    s.send('%s>APRS:%s\n' % (callsign, wx))
+    s.shutdown(0)
+    s.close()
+
+def convert_wxt(d):
+    try:
+        wind_dir = int(d['0R1']['Dm'][:3])
+    except KeyError:
+        wind_dir = None
+    try:
+        wind_speed = toMph(d['0R1']['Sm'])
+    except KeyError:
+        wind_speed = None
+    try:
+        wind_gust = toMph(d['0R1']['Sx'])
+    except KeyError:
+        wind_gust = None
+    try:
+        temperature = toFahrenheit(d['0R2']['Ta'])
+    except KeyError:
+        temperature = None
+    try:
+        humidity = float(d['0R2']['Ua'][:-1])
+    except KeyError:
+        humidity = None
+    try:
+        pressure = float(d['0R2']['Pa'][:-1]) * 10.0 # TODO: make more robust with unit conversion function
+    except KeyError:
+        pressure = None
+    try:
+        rain_last_hour = float(toHin(d['0R3']['Rc'])) - toHin(rain_at_hour)
+    except (KeyError, TypeError):
+        rain_last_hour = None
+    return make_aprs_wx(wind_dir=wind_dir, wind_speed=wind_speed, wind_gust=wind_gust, temperature=temperature, humidity=humidity, pressure=pressure, rain_last_hour=rain_last_hour)
+
+def main():
+    #change to data directory if needed
+    #os.chdir("/home/root/scheduler")
+    #redirect outputs to a logfile
+    #sys.stdout = sys.stderr = Log(open(LOGFILE, 'a+'))
+    #ensure the that the daemon runs a normal user
+    #os.setegid(103)     #set group first "pydaemon"
+    #os.seteuid(103)     #set user "pydaemon"
+
+    #setup the schduler
+    sched = Scheduler()
+    sched.start()
+    
+    global rain_at_hour
+    d = {}
+    
+    @sched.cron_schedule(hour='*',minute='0',second='0')
+    def reset_rain_counter():
+        global rain_at_hour
+        try:
+            rain_at_hour = d['0R3']['Rc']
+        except KeyError:
+            rain_at_hour = None
+    
+    @sched.interval_schedule(minutes=2)
+    def post_to_aprs():
+        print convert_wxt(d)
+        send_aprs(aprs_host, aprs_port, aprs_user, aprs_pass, callsign, convert_wxt(d))
+    
+    #start the weather socket
+    wx_socket = socket(AF_INET, SOCK_STREAM)
+    wx_socket.connect((wx_host, wx_port))
+    wx_file = wx_socket.makefile()
+    
+    while True:
+        try:
+            line = wx_file.readline().rstrip().split(',')
+            key = line.pop(0)
+            d[key] = {}
+            for i in line:
+                i = i.split('=')
+                d[key][i[0]] = i[1]
+        except KeyboardInterrupt:
+            break
+    wx_socket.shutdown(0)
+    wx_socket.close()
+    print convert_wxt(d)
+
+if __name__ == "__main__":
+    # do the UNIX double-fork magic, see Stevens' "Advanced
+    # Programming in the UNIX Environment" for details (ISBN 0201563177)
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # exit first parent
+            sys.exit(0)
+    except OSError, e:
+        print >>sys.stderr, "fork #1 failed: %d (%s)" % (e.errno, e.strerror)
+        sys.exit(1)
+
+    # decouple from parent environment
+    os.chdir("/")   #don't prevent unmounting....
+    os.setsid()
+    os.umask(0)
+
+    # do second fork
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # exit from second parent, print eventual PID before
+            #print "Daemon PID %d" % pid
+            open(PIDFILE,'w').write("%d"%pid)
+            sys.exit(0)
+    except OSError, e:
+        print >>sys.stderr, "fork #2 failed: %d (%s)" % (e.errno, e.strerror)
+        sys.exit(1)
+
+    # start the daemon main loop
+    main()
