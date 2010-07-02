@@ -18,7 +18,6 @@ LOGFILE = '/var/log/pywxtd.log'
 PIDFILE = '/var/run/pywxtd.pid'
 #CONFFILE = '/etc/pywxtd.conf'
 
-#wx_host = 'dana-roof-serial.ce.wsu.edu'
 wx_host = 'localhost'
 wx_port = 4001
 
@@ -29,7 +28,7 @@ aprs_pass = '22438'
 
 callsign = 'W7YH-3'
 
-rain_at_hour = None
+rain_at_midnight = None
 
 class Log:
     """file like for writes with auto flush after each write
@@ -71,16 +70,16 @@ def toHin(rain):
     if rain[-1] == 'M':
         return float(rain[:-1]) * 3.93700787
 
-def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=None, rain_last_hour=None, humidity=None, pressure=None):
+def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=None, rain_since_midnight=None, humidity=None, pressure=None):
     """Assembles the payload of the APRS weather packet"""
     wind_dir = '%03d'%wind_dir if wind_dir is not None else '.'*3
     wind_speed = '%03.0f'%wind_speed if wind_speed is not None else '.'*3
     wind_gust = '%03.0f'%wind_gust if wind_gust is not None else '.'*3
     temperature = '%03.0f'%temperature if temperature is not None else '.'*3
-    rain_last_hour = '%03.0f'%rain_last_hour if rain_last_hour is not None else '.'*3
+    rain_since_midnight = '%03.0f' % rain_since_midnight if rain_since_midnight is not None else '.'*3
     humidity = '%02.0f'%humidity if humidity is not None else '.'*2
     pressure = '%05.0f'%pressure if pressure is not None else '.'*5
-    return '!4643.80N/11710.14W_%s/%sg%st%sr%sh%sb%sWXT' % (wind_dir, wind_speed, wind_gust, temperature, rain_last_hour, humidity, pressure)
+    return '!4643.80N/11710.14W_%s/%sg%st%sP%sh%sb%sWXT' % (wind_dir, wind_speed, wind_gust, temperature, rain_since_midnight, humidity, pressure)
 
 def send_aprs(host, port, user, passcode, callsign, wx):
     #start the aprs server socket
@@ -93,6 +92,7 @@ def send_aprs(host, port, user, passcode, callsign, wx):
     s.close()
 
 def convert_wxt(d):
+    # There's got to be a better way of doing this error checking:
     try:
         wind_dir = int(d['0R1']['Dm'][:3])
     except KeyError:
@@ -118,10 +118,10 @@ def convert_wxt(d):
     except KeyError:
         pressure = None
     try:
-        rain_last_hour = float(toHin(d['0R3']['Rc'])) - toHin(rain_at_hour)
+        rain_since_midnight = float(toHin(d['0R3']['Rc'])) - toHin(rain_since_midnight)
     except (KeyError, TypeError):
         rain_last_hour = None
-    return make_aprs_wx(wind_dir=wind_dir, wind_speed=wind_speed, wind_gust=wind_gust, temperature=temperature, humidity=humidity, pressure=pressure, rain_last_hour=rain_last_hour)
+    return make_aprs_wx(wind_dir=wind_dir, wind_speed=wind_speed, wind_gust=wind_gust, temperature=temperature, humidity=humidity, pressure=pressure, rain_since_midnight=rain_since_midnight)
 
 def main():
     #change to data directory if needed
@@ -136,18 +136,18 @@ def main():
     sched = Scheduler()
     sched.start()
     
-    global rain_at_hour
+    global rain_at_midnight
     d = {}
     
-    @sched.cron_schedule(hour='*',minute='0',second='0')
+    @sched.cron_schedule(hour='0',minute='0',second='0')
     def reset_rain_counter():
-        global rain_at_hour
+        global rain_at_midnight
         try:
-            rain_at_hour = d['0R3']['Rc']
+            rain_at_midnight = d['0R3']['Rc']
         except KeyError:
-            rain_at_hour = None
+            rain_at_midnight = None
     
-    @sched.interval_schedule(minutes=2)
+    @sched.interval_schedule(minutes=5)
     def post_to_aprs():
         print convert_wxt(d)
         send_aprs(aprs_host, aprs_port, aprs_user, aprs_pass, callsign, convert_wxt(d))
