@@ -71,15 +71,30 @@ def toHin(rain):
         return float(rain[:-1]) * 3.93700787
 
 def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=None, rain_since_midnight=None, humidity=None, pressure=None):
-    """Assembles the payload of the APRS weather packet"""
-    wind_dir = '%03d'%wind_dir if wind_dir is not None else '.'*3
-    wind_speed = '%03.0f'%wind_speed if wind_speed is not None else '.'*3
-    wind_gust = '%03.0f'%wind_gust if wind_gust is not None else '.'*3
-    temperature = '%03.0f'%temperature if temperature is not None else '.'*3
-    rain_since_midnight = '%03.0f' % rain_since_midnight if rain_since_midnight is not None else '.'*3
-    humidity = '%02.0f'%humidity if humidity is not None else '.'*2
-    pressure = '%05.0f'%pressure if pressure is not None else '.'*5
-    return '!4643.80N/11710.14W_%s/%sg%st%sP%sh%sb%sWXT' % (wind_dir, wind_speed, wind_gust, temperature, rain_since_midnight, humidity, pressure)
+    """
+    Assembles the payload of the APRS weather packet.
+    """
+    def str_or_dots(number, length):
+        """
+        If parameter is None, fill space with dots. Else, zero-pad.
+        """
+        if number is None:
+            return '.'*length
+        else:
+            format_type = {
+                'int': 'd',
+                'float': '.0f',
+            }[type(number).__name__]
+            return ''.join(('%0',str(length),format_type)) % number
+    return '!4643.80N/11710.14W_%s/%sg%st%sP%sh%sb%sWXT' % (
+        str_or_dots(wind_dir, 3),
+        str_or_dots(wind_speed, 3),
+        str_or_dots(wind_gust, 3),
+        str_or_dots(temperature, 3),
+        str_or_dots(rain_since_midnight, 3),
+        str_or_dots(humidity, 2),
+        str_or_dots(pressure, 5)
+    )
 
 def send_aprs(host, port, user, passcode, callsign, wx):
     #start the aprs server socket
