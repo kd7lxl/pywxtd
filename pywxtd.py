@@ -13,20 +13,7 @@ import sys, os, time
 from apscheduler.scheduler import Scheduler
 from socket import *
 
-# configure these paths:
-LOGFILE = '/var/log/pywxtd.log'
-PIDFILE = '/var/run/pywxtd.pid'
-#CONFFILE = '/etc/pywxtd.conf'
-
-wx_host = 'localhost'
-wx_port = 4001
-
-aprs_host = 'northwest.aprs2.net'
-aprs_port = 14580
-aprs_user = 'KD7LXL-WX'
-aprs_pass = '22438'
-
-callsign = 'W7YH-3'
+from settings import *
 
 rain_at_midnight = None
 
@@ -165,11 +152,11 @@ def main():
     @sched.interval_schedule(minutes=5)
     def post_to_aprs():
         print convert_wxt(d)
-        send_aprs(aprs_host, aprs_port, aprs_user, aprs_pass, callsign, convert_wxt(d))
+        send_aprs(APRS_HOST, APRS_PORT, APRS_USER, APRS_PASS, CALLSIGN, convert_wxt(d))
     
     #start the weather socket
     wx_socket = socket(AF_INET, SOCK_STREAM)
-    wx_socket.connect((wx_host, wx_port))
+    wx_socket.connect((WX_HOST, WX_PORT))
     wx_file = wx_socket.makefile()
     
     while True:
