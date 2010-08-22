@@ -12,6 +12,8 @@ APRS_PASS = ''
 
 CALLSIGN = ''
 
+STATION_TYPE = 'WXT520'
+ELEVATION = 750 # meters above sea-level
 
 # error checking:
 assert len(WX_HOST) > 0

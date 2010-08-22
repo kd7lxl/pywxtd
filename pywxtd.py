@@ -57,6 +57,22 @@ def toHin(rain):
     if rain[-1] == 'M':
         return float(rain[:-1]) * 3.93700787
 
+def toPas(Pstn):
+    # p0 = 1013.25
+    # T0 = 288.15
+    # g = 9.801
+    # Rd = 287.04
+    # Gamma = 6.5
+    # zstn = ELEVATION
+    # print Pstn
+    # return Pstn*(1 + ((p0**0.190284*0.0065/Rd)*(zstn/(Pstn**0.190284))) )**(1/0.190284)
+    # a = Pstn**(Gamma*Rd/g)
+    # b = p0**(Gamma*Rd/g)*(Gamma/T0*zstn)
+    # c = (g/(Rd*Gamma))
+    # return ( a + b )**c
+    # return ( Pstn**(Gamma*Rd/g) + p0**(Gamma*Rd/g)*(Gamma/T0*zstn) )**(g/(Rd*Gamma))
+    return Pstn
+
 def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=None, rain_since_midnight=None, humidity=None, pressure=None):
     """
     Assembles the payload of the APRS weather packet.
@@ -73,14 +89,15 @@ def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=Non
                 'float': '.0f',
             }[type(number).__name__]
             return ''.join(('%0',str(length),format_type)) % number
-    return '!4643.80N/11710.14W_%s/%sg%st%sP%sh%sb%sWXT' % (
+    return '!4643.80N/11710.14W_%s/%sg%st%sP%sh%sb%s%s' % (
         str_or_dots(wind_dir, 3),
         str_or_dots(wind_speed, 3),
         str_or_dots(wind_gust, 3),
         str_or_dots(temperature, 3),
         str_or_dots(rain_since_midnight, 3),
         str_or_dots(humidity, 2),
-        str_or_dots(pressure, 5)
+        str_or_dots(pressure, 5),
+        STATION_TYPE
     )
 
 def send_aprs(host, port, user, passcode, callsign, wx):
@@ -116,13 +133,13 @@ def convert_wxt(d):
     except KeyError:
         humidity = None
     try:
-        pressure = float(d['0R2']['Pa'][:-1]) * 10.0 # TODO: make more robust with unit conversion function
+        pressure = toPas(float(d['0R2']['Pa'][:-1]) * 10.0)
     except KeyError:
         pressure = None
     try:
-        rain_since_midnight = float(toHin(d['0R3']['Rc'])) - toHin(rain_since_midnight)
+        rain_since_midnight = float(toHin(d['0R3']['Rc'])) - toHin(rain_at_midnight)
     except (KeyError, TypeError):
-        rain_last_hour = None
+        rain_since_midnight = None
     return make_aprs_wx(wind_dir=wind_dir, wind_speed=wind_speed, wind_gust=wind_gust, temperature=temperature, humidity=humidity, pressure=pressure, rain_since_midnight=rain_since_midnight)
 
 def main():
@@ -169,6 +186,7 @@ def main():
                 d[key][i[0]] = i[1]
         except KeyboardInterrupt:
             break
+    sched.shutdown()
     wx_socket.shutdown(0)
     wx_socket.close()
     print convert_wxt(d)
