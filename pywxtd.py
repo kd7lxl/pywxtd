@@ -71,7 +71,8 @@ def toPas(Pstn):
     # c = (g/(Rd*Gamma))
     # return ( a + b )**c
     # return ( Pstn**(Gamma*Rd/g) + p0**(Gamma*Rd/g)*(Gamma/T0*zstn) )**(g/(Rd*Gamma))
-    return Pstn
+    # No idea if this formula is correct:
+    return Pstn * pow((1.0 + 0.000084229 * (ELEVATION/pow(Pstn, 0.19028))), 5.2553)
 
 def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=None, rain_since_midnight=None, humidity=None, pressure=None):
     """
