@@ -58,23 +58,18 @@ def toHin(rain):
         return float(rain[:-1]) * 3.93700787
 
 def toPas(Pstn):
+    Pstn = float(Pstn)
     # p0 = 1013.25
     # T0 = 288.15
     # g = 9.801
     # Rd = 287.04
     # Gamma = 6.5
     # zstn = ELEVATION
-    # print Pstn
     # return Pstn*(1 + ((p0**0.190284*0.0065/Rd)*(zstn/(Pstn**0.190284))) )**(1/0.190284)
-    # a = Pstn**(Gamma*Rd/g)
-    # b = p0**(Gamma*Rd/g)*(Gamma/T0*zstn)
-    # c = (g/(Rd*Gamma))
-    # return ( a + b )**c
-    # return ( Pstn**(Gamma*Rd/g) + p0**(Gamma*Rd/g)*(Gamma/T0*zstn) )**(g/(Rd*Gamma))
     # No idea if this formula is correct:
-    #return Pstn * pow((1.0 + 0.000084229 * (ELEVATION/pow(Pstn, 0.19028))), 5.2553)
+    return Pstn * pow((1.0 + 0.000084229 * (ELEVATION/pow(Pstn, 0.19028))), 5.2553)
     # offset for 750m elevation:
-    return Pstn + 86.6816
+    #return Pstn + 86.6816
 
 def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=None, rain_since_midnight=None, humidity=None, pressure=None):
     """
@@ -136,7 +131,7 @@ def convert_wxt(d):
     except KeyError:
         humidity = None
     try:
-        pressure = toPas(float(d['0R2']['Pa'][:-1]) * 10.0)
+        pressure = toPas(d['0R2']['Pa'][:-1]) * 10.0
     except KeyError:
         pressure = None
     try:
