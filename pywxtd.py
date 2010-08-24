@@ -136,14 +136,6 @@ def convert_wxt(d):
     return make_aprs_wx(wind_dir=wind_dir, wind_speed=wind_speed, wind_gust=wind_gust, temperature=temperature, humidity=humidity, pressure=pressure, rain_since_midnight=rain_since_midnight)
 
 def main():
-    #change to data directory if needed
-    #os.chdir("/home/root/scheduler")
-    #redirect outputs to a logfile
-    #sys.stdout = sys.stderr = Log(open(LOGFILE, 'a+'))
-    #ensure the that the daemon runs a normal user
-    #os.setegid(103)     #set group first "pydaemon"
-    #os.seteuid(103)     #set user "pydaemon"
-
     #setup the schduler
     sched = Scheduler()
     sched.start()
@@ -161,8 +153,9 @@ def main():
     
     @sched.interval_schedule(minutes=5)
     def post_to_aprs():
-        print convert_wxt(d)
-        send_aprs(APRS_HOST, APRS_PORT, APRS_USER, APRS_PASS, CALLSIGN, convert_wxt(d))
+        wx = convert_wxt(d)
+        print time.strftime("%Y-%m-%d %H:%M:%S"), wx
+        send_aprs(APRS_HOST, APRS_PORT, APRS_USER, APRS_PASS, CALLSIGN, wx)
     
     try:
         #start the weather socket
@@ -181,7 +174,7 @@ def main():
             except KeyboardInterrupt:
                 break
     except socket.error, (value, message):
-        print 'Could not open socket: ', message
+        print >>sys.stderr, 'Could not open socket: ', message
     finally:
         sched.shutdown()
         wx_socket.shutdown(0)
@@ -217,5 +210,10 @@ if __name__ == "__main__":
         print >>sys.stderr, "fork #2 failed: %d (%s)" % (e.errno, e.strerror)
         sys.exit(1)
 
+    # redirect outputs to a logfile
+    sys.stdout = sys.stderr = Log(open(LOGFILE, 'a+'))
+    # ensure the that the daemon runs a normal user
+    os.setegid(999)     #set group first "pywxtd"
+    os.seteuid(999)     #set user "pywxtd"
     # start the daemon main loop
     main()
