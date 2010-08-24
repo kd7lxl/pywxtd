@@ -57,19 +57,14 @@ def toHin(rain):
     if rain[-1] == 'M':
         return float(rain[:-1]) * 3.93700787
 
-def toPas(Pstn):
-    Pstn = float(Pstn)
-    # p0 = 1013.25
-    # T0 = 288.15
-    # g = 9.801
-    # Rd = 287.04
-    # Gamma = 6.5
-    # zstn = ELEVATION
-    # return Pstn*(1 + ((p0**0.190284*0.0065/Rd)*(zstn/(Pstn**0.190284))) )**(1/0.190284)
-    # No idea if this formula is correct:
+def toPas(pressure):
+    """Converts sensor pressure (mb) to sea-level pressure (mb)"""
+    # from hPa/millibars
+    if pressure[-1] == 'H':
+        Pstn = float(pressure[:-1])
+    else:
+        return None
     return Pstn * pow((1.0 + 0.000084229 * (ELEVATION/pow(Pstn, 0.19028))), 5.2553)
-    # offset for 750m elevation:
-    #return Pstn + 86.6816
 
 def make_aprs_wx(wind_dir=None, wind_speed=None, wind_gust=None, temperature=None, rain_since_midnight=None, humidity=None, pressure=None):
     """
@@ -131,7 +126,7 @@ def convert_wxt(d):
     except KeyError:
         humidity = None
     try:
-        pressure = toPas(d['0R2']['Pa'][:-1]) * 10.0
+        pressure = toPas(d['0R2']['Pa']) * 10.0
     except KeyError:
         pressure = None
     try:
@@ -169,25 +164,29 @@ def main():
         print convert_wxt(d)
         send_aprs(APRS_HOST, APRS_PORT, APRS_USER, APRS_PASS, CALLSIGN, convert_wxt(d))
     
-    #start the weather socket
-    wx_socket = socket(AF_INET, SOCK_STREAM)
-    wx_socket.connect((WX_HOST, WX_PORT))
-    wx_file = wx_socket.makefile()
+    try:
+        #start the weather socket
+        wx_socket = socket(AF_INET, SOCK_STREAM)
+        wx_socket.connect((WX_HOST, WX_PORT))
+        wx_file = wx_socket.makefile()
     
-    while True:
-        try:
-            line = wx_file.readline().rstrip().split(',')
-            key = line.pop(0)
-            d[key] = {}
-            for i in line:
-                i = i.split('=')
-                d[key][i[0]] = i[1]
-        except KeyboardInterrupt:
-            break
-    sched.shutdown()
-    wx_socket.shutdown(0)
-    wx_socket.close()
-    print convert_wxt(d)
+        while True:
+            try:
+                line = wx_file.readline().rstrip().split(',')
+                key = line.pop(0)
+                d[key] = {}
+                for i in line:
+                    i = i.split('=')
+                    d[key][i[0]] = i[1]
+            except KeyboardInterrupt:
+                break
+    except socket.error, (value, message):
+        print 'Could not open socket: ', message
+    finally:
+        sched.shutdown()
+        wx_socket.shutdown(0)
+        wx_socket.close()
+        print convert_wxt(d)
 
 if __name__ == "__main__":
     # do the UNIX double-fork magic, see Stevens' "Advanced
