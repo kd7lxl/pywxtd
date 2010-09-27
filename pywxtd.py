@@ -173,8 +173,8 @@ def main():
                     d[key][i[0]] = i[1]
             except KeyboardInterrupt:
                 break
-    except socket.error, (value, message):
-        print >>sys.stderr, 'Could not open socket: ', message
+    except error, msg:
+        print >>sys.stderr, 'Could not open socket: ', msg
     finally:
         sched.shutdown()
         wx_socket.shutdown(0)
