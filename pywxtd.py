@@ -170,7 +170,11 @@ def main():
                 d[key] = {}
                 for i in line:
                     i = i.split('=')
-                    d[key][i[0]] = i[1]
+                    try:
+                        d[key][i[0]] = i[1]
+                    except IndexError, msg:
+                        print >>sys.stderr, 'IndexError: ', msg, i
+                        continue
             except KeyboardInterrupt:
                 break
     except error, msg:
