@@ -181,7 +181,6 @@ def main():
         finally:
             wx_socket.shutdown(0)
             wx_socket.close()
-        print convert_wxt(d)
         
         # post to aprs
         wx = convert_wxt(d)
