@@ -10,6 +10,7 @@ Copyright 2010 Tom Hayward <tom@tomh.us>
 
 
 import sys, os, time
+from datetime import datetime, timedelta
 from apscheduler.scheduler import Scheduler
 from socket import *
 
@@ -130,7 +131,7 @@ def convert_wxt(d):
     except KeyError:
         pressure = None
     try:
-        rain_since_midnight = float(toHin(d['0R3']['Rc'])) - toHin(rain_at_midnight)
+        rain_since_midnight = float(toHin(d['0R3']['Rc']))
     except (KeyError, TypeError):
         rain_since_midnight = None
     return make_aprs_wx(wind_dir=wind_dir, wind_speed=wind_speed, wind_gust=wind_gust, temperature=temperature, humidity=humidity, pressure=pressure, rain_since_midnight=rain_since_midnight)
@@ -140,50 +141,61 @@ def main():
     sched = Scheduler()
     sched.start()
     
-    global rain_at_midnight
-    d = {}
-    
     @sched.cron_schedule(hour='0',minute='0',second='0')
     def reset_rain_counter():
-        global rain_at_midnight
-        try:
-            rain_at_midnight = d['0R3']['Rc']
-        except KeyError:
-            rain_at_midnight = None
-    
-    @sched.interval_schedule(minutes=5)
-    def post_to_aprs():
-        wx = convert_wxt(d)
-        print time.strftime("%Y-%m-%d %H:%M:%S"), wx
-        send_aprs(APRS_HOST, APRS_PORT, APRS_USER, APRS_PASS, CALLSIGN, wx)
-    
-    try:
         #start the weather socket
         wx_socket = socket(AF_INET, SOCK_STREAM)
         wx_socket.connect((WX_HOST, WX_PORT))
         wx_file = wx_socket.makefile()
-    
-        while True:
-            try:
-                line = wx_file.readline().rstrip().split(',')
-                key = line.pop(0)
-                d[key] = {}
-                for i in line:
-                    i = i.split('=')
-                    try:
-                        d[key][i[0]] = i[1]
-                    except IndexError, msg:
-                        print >>sys.stderr, 'IndexError: ', msg, i
-                        continue
-            except KeyboardInterrupt:
-                break
-    except error, msg:
-        print >>sys.stderr, 'Could not open socket: ', msg
-    finally:
-        sched.shutdown()
+        wx_file.write('0XZRU\r\n')
         wx_socket.shutdown(0)
         wx_socket.close()
+    
+    @sched.interval_schedule(minutes=5)
+    def post_to_aprs():
+        d = {}
+        # listen to weather station
+        try:
+            #start the weather socket
+            wx_socket = socket(AF_INET, SOCK_STREAM)
+            wx_socket.connect((WX_HOST, WX_PORT))
+            wx_file = wx_socket.makefile()
+            
+            done_time = datetime.now() + timedelta(seconds=10)
+            while datetime.now() < done_time:
+                try:
+                    line = wx_file.readline().rstrip().split(',')
+                    key = line.pop(0)
+                    d[key] = {}
+                    for i in line:
+                        i = i.split('=')
+                        try:
+                            d[key][i[0]] = i[1]
+                        except IndexError, msg:
+                            print >>sys.stderr, 'IndexError: ', msg, i
+                            continue
+                except KeyboardInterrupt:
+                    break
+        except error, msg:
+            print >>sys.stderr, 'Could not open socket: ', msg
+        finally:
+            wx_socket.shutdown(0)
+            wx_socket.close()
         print convert_wxt(d)
+        
+        # post to aprs
+        wx = convert_wxt(d)
+        print time.strftime("%Y-%m-%d %H:%M:%S"), wx
+        send_aprs(APRS_HOST, APRS_PORT, APRS_USER, APRS_PASS, CALLSIGN, wx)
+    
+    # run forever
+    post_to_aprs()
+    while 1:
+        try:
+            time.sleep(10)
+        except KeyboardInterrupt:
+            break
+    sched.shutdown()
 
 if __name__ == "__main__":
     # do the UNIX double-fork magic, see Stevens' "Advanced
