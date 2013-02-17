@@ -5,7 +5,7 @@ parses the ASCII weather data format, builds and submits an
 APRS weather packet to the APRS-IS/CWOP.
 
 BSD License and stuff
-Copyright 2010 Tom Hayward <tom@tomh.us> 
+Copyright 2010 Tom Hayward <tom@tomh.us>
 """
 
 
@@ -140,27 +140,42 @@ def main():
     #setup the schduler
     sched = Scheduler()
     sched.start()
-    
+
     @sched.cron_schedule(hour='0',minute='0',second='0')
     def reset_rain_counter():
         #start the weather socket
         wx_socket = socket(AF_INET, SOCK_STREAM)
-        wx_socket.connect((WX_HOST, WX_PORT))
+        try:
+            wx_socket.connect((WX_HOST, WX_PORT))
+        except error, msg:
+            print >>sys.stderr, time.strftime("%Y-%m-%d %H:%M:%S"), 'Could not reset rain counter: ', msg
+            print >>sys.stderr, time.strftime("%Y-%m-%d %H:%M:%S"), 'Reported rain-since-midnight value is no longer accurate.'
+            return False
         wx_file = wx_socket.makefile()
         wx_file.write('0XZRU\r\n')
         wx_socket.shutdown(0)
         wx_socket.close()
-    
+
     @sched.interval_schedule(minutes=5)
     def post_to_aprs():
         d = {}
         # listen to weather station
+        #start the weather socket
+        wx_socket = socket(AF_INET, SOCK_STREAM)
         try:
-            #start the weather socket
-            wx_socket = socket(AF_INET, SOCK_STREAM)
             wx_socket.connect((WX_HOST, WX_PORT))
+        except error, msg:
+            print >>sys.stderr, time.strftime("%Y-%m-%d %H:%M:%S"), 'Could not open socket: ', msg
+            time.sleep(30)
+            try:
+                #start the weather socket
+                wx_socket.connect((WX_HOST, WX_PORT))
+            except error, msg:
+                print >>sys.stderr, time.strftime("%Y-%m-%d %H:%M:%S"), 'Could not open socket (2nd attempt): ', msg
+                return False
+        try:
             wx_file = wx_socket.makefile()
-            
+
             done_time = datetime.now() + timedelta(seconds=10)
             while datetime.now() < done_time:
                 try:
@@ -177,16 +192,15 @@ def main():
                 except KeyboardInterrupt:
                     break
         except error, msg:
-            print >>sys.stderr, 'Could not open socket: ', msg
-        finally:
-            wx_socket.shutdown(0)
+            print >>sys.stderr, time.strftime("%Y-%m-%d %H:%M:%S"), 'Socket Error: ', msg
             wx_socket.close()
-        
+            return False
+
         # post to aprs
         wx = convert_wxt(d)
         print time.strftime("%Y-%m-%d %H:%M:%S"), wx
         send_aprs(APRS_HOST, APRS_PORT, APRS_USER, APRS_PASS, CALLSIGN, wx)
-    
+
     # run forever
     post_to_aprs()
     while 1:
